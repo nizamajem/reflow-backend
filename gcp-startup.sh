@@ -201,6 +201,123 @@ configure_postgres_db() {
 }
 
 
+ensure_portal_schema() {
+  sudo -u postgres psql -d "${DATABASE_NAME}" <<'SQL'
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_tier_enum') THEN
+    CREATE TYPE user_tier_enum AS ENUM ('student', 'public');
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_method_enum') THEN
+    CREATE TYPE payment_method_enum AS ENUM ('cash', 'midtrans_sandbox', 'midtrans_production');
+  END IF;
+END
+$$;
+
+CREATE TABLE IF NOT EXISTS packages (
+  id character varying PRIMARY KEY,
+  name character varying NOT NULL,
+  duration_label character varying NOT NULL,
+  description text NOT NULL,
+  benefits jsonb NOT NULL,
+  base_price jsonb NOT NULL,
+  price jsonb NOT NULL,
+  active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS package_credentials (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  package_id character varying NOT NULL,
+  tier user_tier_enum NOT NULL,
+  email character varying NOT NULL,
+  password character varying NOT NULL,
+  used boolean NOT NULL DEFAULT false,
+  used_at timestamptz,
+  assigned_account_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS generated_accounts (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  package_id character varying,
+  package_name character varying NOT NULL,
+  tier user_tier_enum NOT NULL,
+  payment_method payment_method_enum NOT NULL DEFAULT 'cash',
+  price_paid numeric NOT NULL,
+  credential_email character varying NOT NULL,
+  credential_password character varying NOT NULL,
+  customer_name character varying NOT NULL,
+  customer_phone character varying NOT NULL,
+  customer_email character varying,
+  credential_id uuid NOT NULL,
+  created_by_user_id uuid,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'generated_accounts' AND column_name = 'payment_method'
+  ) THEN
+    ALTER TABLE generated_accounts ADD COLUMN payment_method payment_method_enum;
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'generated_accounts' AND column_name = 'created_by_user_id'
+  ) THEN
+    ALTER TABLE generated_accounts ADD COLUMN created_by_user_id uuid;
+  END IF;
+END
+$$;
+
+ALTER TABLE generated_accounts
+  ALTER COLUMN payment_method DROP DEFAULT;
+
+CREATE TABLE IF NOT EXISTS portal_settings (
+  id character varying PRIMARY KEY,
+  payment_methods jsonb NOT NULL DEFAULT '{"cash": true, "midtrans_sandbox": false, "midtrans_production": false}',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO portal_settings (id, payment_methods)
+VALUES ('portal-settings-default', '{"cash": true, "midtrans_sandbox": false, "midtrans_production": false}')
+ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE package_credentials
+  ADD CONSTRAINT IF NOT EXISTS "FK_package_credentials_package"
+    FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE;
+
+ALTER TABLE package_credentials
+  ADD CONSTRAINT IF NOT EXISTS "FK_package_credentials_assigned_account"
+    FOREIGN KEY (assigned_account_id) REFERENCES generated_accounts(id) ON DELETE SET NULL;
+
+ALTER TABLE generated_accounts
+  ADD CONSTRAINT IF NOT EXISTS "FK_generated_accounts_package"
+    FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE SET NULL;
+
+ALTER TABLE generated_accounts
+  ADD CONSTRAINT IF NOT EXISTS "FK_generated_accounts_credential"
+    FOREIGN KEY (credential_id) REFERENCES package_credentials(id) ON DELETE SET NULL;
+SQL
+}
+
+
 install_migrations_dependencies() {
   cd "$APP_DIR"
   set -a
@@ -277,6 +394,7 @@ fi
 if [ "$INSTALL_LOCAL_POSTGRES" = "true" ]; then
   run_step "Install PostgreSQL server" install_postgres_server
   run_step "Configure PostgreSQL role & database" configure_postgres_db
+  run_step "Ensure portal schema baseline" ensure_portal_schema
 else
   log "INFO: Skipping PostgreSQL provisioning (DATABASE_HOST=${DATABASE_HOST})"
 fi

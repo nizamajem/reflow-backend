@@ -32,7 +32,7 @@ export class GeneratedAccountEntity {
   @Column({ type: "enum", enum: USER_TIER_VALUES, enumName: "user_tier_enum" })
   tier: UserTier;
 
-  @Column({ type: "enum", enum: PAYMENT_METHOD_VALUES, enumName: "payment_method_enum" })
+  @Column({ name: "payment_method", type: "enum", enum: PAYMENT_METHOD_VALUES, enumName: "payment_method_enum" })
   paymentMethod: PaymentMethod;
 
   @Column({ name: "price_paid", type: "numeric" })
