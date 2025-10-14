@@ -203,6 +203,11 @@ configure_postgres_db() {
 
 ensure_portal_schema() {
   sudo -u postgres psql -d "${DATABASE_NAME}" <<'SQL'
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+ALTER TABLE users
+  ALTER COLUMN id SET DEFAULT uuid_generate_v4();
+
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_tier_enum') THEN
@@ -397,6 +402,7 @@ if [ "$INSTALL_LOCAL_POSTGRES" = "true" ]; then
   run_step "Ensure portal schema baseline" ensure_portal_schema
 else
   log "INFO: Skipping PostgreSQL provisioning (DATABASE_HOST=${DATABASE_HOST})"
+  run_step "Ensure portal schema baseline" ensure_portal_schema
 fi
 
 if [ -d "$SRC_DIR/.git" ]; then
