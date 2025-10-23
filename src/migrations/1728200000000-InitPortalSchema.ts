@@ -6,12 +6,12 @@ export class InitPortalSchema1728200000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
 
-    await queryRunner.query(
-      `CREATE TYPE "user_tier_enum" AS ENUM ('student', 'public')`
-    );
-    await queryRunner.query(
-      `CREATE TYPE "payment_method_enum" AS ENUM ('cash', 'midtrans_sandbox', 'midtrans_production')`
-    );
+    await queryRunner.query(`
+      CREATE TYPE "user_tier_enum" AS ENUM ('student', 'public')
+    `);
+    await queryRunner.query(`
+      CREATE TYPE "payment_method_enum" AS ENUM ('cash', 'midtrans_sandbox', 'midtrans_production')
+    `);
 
     await queryRunner.query(`
       CREATE TABLE "packages" (
@@ -23,6 +23,7 @@ export class InitPortalSchema1728200000000 implements MigrationInterface {
         "base_price" jsonb NOT NULL,
         "price" jsonb NOT NULL,
         "active" boolean NOT NULL DEFAULT true,
+        "available_in" jsonb NOT NULL DEFAULT '["partnership"]',
         "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         CONSTRAINT "PK_packages_id" PRIMARY KEY ("id")
@@ -90,22 +91,30 @@ export class InitPortalSchema1728200000000 implements MigrationInterface {
 
     await queryRunner.query(`
       ALTER TABLE "package_credentials"
-      ADD CONSTRAINT "FK_package_credentials_package" FOREIGN KEY ("package_id") REFERENCES "packages"("id") ON DELETE CASCADE ON UPDATE NO ACTION
+      ADD CONSTRAINT "FK_package_credentials_package"
+      FOREIGN KEY ("package_id") REFERENCES "packages"("id")
+      ON DELETE CASCADE ON UPDATE NO ACTION
     `);
 
     await queryRunner.query(`
       ALTER TABLE "generated_accounts"
-      ADD CONSTRAINT "FK_generated_accounts_package" FOREIGN KEY ("package_id") REFERENCES "packages"("id") ON DELETE SET NULL ON UPDATE NO ACTION
+      ADD CONSTRAINT "FK_generated_accounts_package"
+      FOREIGN KEY ("package_id") REFERENCES "packages"("id")
+      ON DELETE SET NULL ON UPDATE NO ACTION
     `);
 
     await queryRunner.query(`
       ALTER TABLE "generated_accounts"
-      ADD CONSTRAINT "FK_generated_accounts_credential" FOREIGN KEY ("credential_id") REFERENCES "package_credentials"("id") ON DELETE NO ACTION ON UPDATE NO ACTION
+      ADD CONSTRAINT "FK_generated_accounts_credential"
+      FOREIGN KEY ("credential_id") REFERENCES "package_credentials"("id")
+      ON DELETE NO ACTION ON UPDATE NO ACTION
     `);
 
     await queryRunner.query(`
       ALTER TABLE "package_credentials"
-      ADD CONSTRAINT "FK_package_credentials_assigned_account" FOREIGN KEY ("assigned_account_id") REFERENCES "generated_accounts"("id") ON DELETE SET NULL ON UPDATE NO ACTION
+      ADD CONSTRAINT "FK_package_credentials_assigned_account"
+      FOREIGN KEY ("assigned_account_id") REFERENCES "generated_accounts"("id")
+      ON DELETE SET NULL ON UPDATE NO ACTION
     `);
   }
 

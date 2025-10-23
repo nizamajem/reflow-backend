@@ -1,6 +1,12 @@
-import { IsBoolean, IsNumber, IsOptional, ValidateNested } from "class-validator";
+import {
+  IsBoolean,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  ValidateNested,
+} from "class-validator";
 import { Type } from "class-transformer";
-import { UserTier } from "@/common/enums/user-tier.enum";
+import { Role } from "@/common/enums/role.enum";
 
 class PriceDto {
   @IsOptional()
@@ -21,5 +27,8 @@ export class UpdatePackageDto {
   @ValidateNested()
   @Type(() => PriceDto)
   price?: PriceDto;
-}
 
+  @IsOptional()
+  @IsEnum(Role)
+  role?: Role;
+}

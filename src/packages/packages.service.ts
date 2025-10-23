@@ -14,18 +14,21 @@ import { CreatePackageCredentialDto } from "./dto/create-package-credential.dto"
 import { UpdatePackageCredentialDto } from "./dto/update-package-credential.dto";
 import { UserTier } from "@/common/enums/user-tier.enum";
 import { PackageCredentialEntity } from "./entities/package-credential.entity";
-export type PackageResponse = {
+import { Role } from "@/common/enums/role.enum";
+
+export interface PackageResponse {
   id: string;
   name: string;
   durationLabel: string;
   description: string;
   benefits: string[];
   basePrice: Record<UserTier, number>;
-  price: Record<UserTier, number>;
+  price: Record<UserTier, number> | null;
   active: boolean;
+  availableIn: Role;
   createdAt: string;
   updatedAt: string;
-};
+}
 
 export type PackageCredentialResponse = {
   id: string;
@@ -63,7 +66,9 @@ export class PackagesService implements OnModuleInit {
 
   async ensureDefaultPackages() {
     for (const pkg of DEFAULT_PACKAGES) {
-      let entity = await this.packagesRepository.findOne({ where: { id: pkg.id } });
+      let entity = await this.packagesRepository.findOne({
+        where: { id: pkg.id },
+      });
 
       if (!entity) {
         entity = this.packagesRepository.create({
@@ -75,6 +80,9 @@ export class PackagesService implements OnModuleInit {
           basePrice: pkg.basePrice,
           price: pkg.basePrice,
           active: true,
+          availableIn: Array.isArray(pkg.availableIn)
+            ? pkg.availableIn[0] ?? Role.Partnership
+            : pkg.availableIn ?? Role.Partnership,
         });
         await this.packagesRepository.save(entity);
         this.logger.log(`Seeded package ${pkg.id}`);
@@ -116,6 +124,11 @@ export class PackagesService implements OnModuleInit {
         updated = true;
       }
 
+      if (!entity.availableIn) {
+        entity.availableIn = Role.Partnership;
+        updated = true;
+      }
+
       if (updated) {
         await this.packagesRepository.save(entity);
         this.logger.log(`Updated package ${pkg.id} with latest defaults`);
@@ -138,7 +151,10 @@ export class PackagesService implements OnModuleInit {
     return pkg;
   }
 
-  async updateSettings(id: string, dto: UpdatePackageDto): Promise<PackageResponse> {
+  async updateSettings(
+    id: string,
+    dto: UpdatePackageDto
+  ): Promise<PackageResponse> {
     const pkg = await this.packagesRepository.findOne({ where: { id } });
     if (!pkg) {
       throw new NotFoundException(`Package ${id} not found`);
@@ -152,13 +168,22 @@ export class PackagesService implements OnModuleInit {
     }
 
     if (dto.price) {
-      const nextPrice: Record<UserTier, number> = { ...pkg.price };
+      const nextPrice: Record<UserTier, number> = {
+        student: pkg.price?.student ?? 0,
+        public: pkg.price?.public ?? 0,
+      };
 
-      if (typeof dto.price.student === "number" && !Number.isNaN(dto.price.student)) {
+      if (
+        typeof dto.price.student === "number" &&
+        !Number.isNaN(dto.price.student)
+      ) {
         nextPrice.student = Math.max(0, dto.price.student);
       }
 
-      if (typeof dto.price.public === "number" && !Number.isNaN(dto.price.public)) {
+      if (
+        typeof dto.price.public === "number" &&
+        !Number.isNaN(dto.price.public)
+      ) {
         nextPrice.public = Math.max(0, dto.price.public);
       }
 
@@ -168,9 +193,13 @@ export class PackagesService implements OnModuleInit {
       }
     }
 
-    if (!dirty) {
-      return this.mapPackage(pkg);
+    // mapping role ke kolom available_in
+    if (dto.role && pkg.availableIn !== dto.role) {
+      pkg.availableIn = dto.role; // kolom DB tetap available_in
+      dirty = true;
     }
+
+    if (!dirty) return this.mapPackage(pkg);
 
     const saved = await this.packagesRepository.save(pkg);
     return this.mapPackage(saved);
@@ -180,7 +209,9 @@ export class PackagesService implements OnModuleInit {
     packageId: string,
     dto: CreatePackageCredentialDto
   ): Promise<PackageCredentialResponse> {
-    const pkg = await this.packagesRepository.findOne({ where: { id: packageId } });
+    const pkg = await this.packagesRepository.findOne({
+      where: { id: packageId },
+    });
     if (!pkg) {
       throw new NotFoundException(`Package ${packageId} not found`);
     }
@@ -192,7 +223,9 @@ export class PackagesService implements OnModuleInit {
     });
 
     if (duplicate) {
-      throw new BadRequestException("Credential already exists for this package and tier with the provided email.");
+      throw new BadRequestException(
+        "Credential already exists for this package and tier with the provided email."
+      );
     }
 
     const credential = this.credentialsRepository.create({
@@ -222,7 +255,9 @@ export class PackagesService implements OnModuleInit {
     const parsed = this.parseCredentialCsv(content);
 
     if (parsed.rows.length === 0) {
-      throw new BadRequestException("No credentials found in the uploaded file.");
+      throw new BadRequestException(
+        "No credentials found in the uploaded file."
+      );
     }
 
     if (parsed.errors.length > 0) {
@@ -240,7 +275,9 @@ export class PackagesService implements OnModuleInit {
     id: string,
     dto: UpdatePackageCredentialDto
   ): Promise<PackageCredentialResponse> {
-    const credential = await this.credentialsRepository.findOne({ where: { id } });
+    const credential = await this.credentialsRepository.findOne({
+      where: { id },
+    });
     if (!credential) {
       throw new NotFoundException(`Credential ${id} not found`);
     }
@@ -261,7 +298,9 @@ export class PackagesService implements OnModuleInit {
       });
 
       if (exists) {
-        throw new BadRequestException("Credential already exists for this package and tier with the provided email.");
+        throw new BadRequestException(
+          "Credential already exists for this package and tier with the provided email."
+        );
       }
       credential.email = email;
     }
@@ -275,7 +314,9 @@ export class PackagesService implements OnModuleInit {
   }
 
   async deleteCredential(id: string): Promise<void> {
-    const credential = await this.credentialsRepository.findOne({ where: { id } });
+    const credential = await this.credentialsRepository.findOne({
+      where: { id },
+    });
     if (!credential) {
       throw new NotFoundException(`Credential ${id} not found`);
     }
@@ -289,7 +330,9 @@ export class PackagesService implements OnModuleInit {
     return credentials.map((credential) => this.mapCredential(credential));
   }
 
-  async findCredentialsByPackage(packageId: string): Promise<PackageCredentialResponse[]> {
+  async findCredentialsByPackage(
+    packageId: string
+  ): Promise<PackageCredentialResponse[]> {
     const credentials = await this.credentialsRepository.find({
       where: { packageId },
       order: { createdAt: "DESC" },
@@ -297,7 +340,10 @@ export class PackagesService implements OnModuleInit {
     return credentials.map((credential) => this.mapCredential(credential));
   }
 
-  async findAvailableCredential(packageId: string, tier: UserTier): Promise<PackageCredentialEntity | null> {
+  async findAvailableCredential(
+    packageId: string,
+    tier: UserTier
+  ): Promise<PackageCredentialEntity | null> {
     return this.credentialsRepository.findOne({
       where: { packageId, tier, used: false },
       order: { createdAt: "ASC" },
@@ -325,14 +371,17 @@ export class PackagesService implements OnModuleInit {
       description: pkg.description,
       benefits: pkg.benefits,
       basePrice: pkg.basePrice,
-      price: pkg.price,
+      price: pkg.price ?? { student: 0, public: 0 },
       active: pkg.active,
+      availableIn: pkg.availableIn ?? Role.Partnership,
       createdAt: pkg.createdAt?.toISOString?.() ?? new Date().toISOString(),
       updatedAt: pkg.updatedAt?.toISOString?.() ?? new Date().toISOString(),
     };
   }
 
-  mapCredential(credential: PackageCredentialEntity): PackageCredentialResponse {
+  mapCredential(
+    credential: PackageCredentialEntity
+  ): PackageCredentialResponse {
     return {
       id: credential.id,
       packageId: credential.packageId,
@@ -369,9 +418,12 @@ export class PackagesService implements OnModuleInit {
     }
 
     const headerLine = lines.shift()!.replace(/^\ufeff/, "");
-    const headerCells = headerLine
-      .split(",")
-      .map((cell) => cell.trim().toLowerCase().replace(/[\s_-]+/g, ""));
+    const headerCells = headerLine.split(",").map((cell) =>
+      cell
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_-]+/g, "")
+    );
     const requiredHeaders = ["packageid", "tier", "email", "password"];
 
     const headerIndex: Record<string, number> = {};
@@ -390,7 +442,7 @@ export class PackagesService implements OnModuleInit {
 
     lines.forEach((line, idx) => {
       const cells = line.split(",").map((cell) => cell.trim());
-      const rowNumber = idx + 2; // account for header line
+      const rowNumber = idx + 2;
 
       const packageId = cells[headerIndex.packageid] ?? "";
       const tier = cells[headerIndex.tier]?.toLowerCase();
@@ -403,7 +455,9 @@ export class PackagesService implements OnModuleInit {
         rowErrors.push(`Row ${rowNumber}: packageId is required.`);
       }
       if (!tier || !["student", "public"].includes(tier)) {
-        rowErrors.push(`Row ${rowNumber}: tier must be either "student" or "public".`);
+        rowErrors.push(
+          `Row ${rowNumber}: tier must be either "student" or "public".`
+        );
       }
       if (!email) {
         rowErrors.push(`Row ${rowNumber}: email is required.`);
@@ -411,7 +465,9 @@ export class PackagesService implements OnModuleInit {
         rowErrors.push(`Row ${rowNumber}: email "${email}" is invalid.`);
       }
       if (!password || password.length < 6) {
-        rowErrors.push(`Row ${rowNumber}: password must be at least 6 characters.`);
+        rowErrors.push(
+          `Row ${rowNumber}: password must be at least 6 characters.`
+        );
       }
 
       if (rowErrors.length > 0) {
@@ -428,7 +484,6 @@ export class PackagesService implements OnModuleInit {
       });
     });
 
-    // detect duplicates within uploaded file
     const seen = new Set<string>();
     for (const row of result.rows) {
       const signature = `${row.packageId}::${row.tier}::${row.email}`;
@@ -472,7 +527,9 @@ export class PackagesService implements OnModuleInit {
       for (const row of rows) {
         const pkg = packagesById.get(row.packageId);
         if (!pkg) {
-          throw new BadRequestException(`Row ${row.rowNumber}: package "${row.packageId}" was not found.`);
+          throw new BadRequestException(
+            `Row ${row.rowNumber}: package "${row.packageId}" was not found.`
+          );
         }
 
         const existing = await credentialsRepo.findOne({
